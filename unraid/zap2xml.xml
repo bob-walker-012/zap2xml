@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>zap2xml</Name>
+  <Repository>ghcr.io/bob-walker-012/zap2xml:latest</Repository>
+  <Registry>https://github.com/bob-walker-012/zap2xml/pkgs/container/zap2xml</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/bob-walker-012/zap2xml/issues</Support>
+  <Project>https://github.com/bob-walker-012/zap2xml</Project>
+  <Overview>Grabs TV guide data from tvlistings.gracenote.com (grid-affiliates, affiliate id orbebb) and writes an XMLTV file to /data on a refresh loop.&#13;&#13;Log in with a TV Listings account, or skip the account and give a provider headend id + ZIP code. Plex, Emby and Jellyfin can read the file directly or pull it from the built-in web server on port 8080.&#13;&#13;Output: /mnt/user/appdata/zap2xml/xmltv.xml</Overview>
+  <Category>Tools:Utilities MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:8080]/xmltv.xml</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/bob-walker-012/zap2xml/master/unraid/zap2xml.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/bob-walker-012/zap2xml/master/unraid/zap2xml.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Output folder" Target="/data" Default="/mnt/user/appdata/zap2xml" Mode="rw" Description="Holds xmltv.xml and the download cache. Point Plex/Emby/Jellyfin at xmltv.xml in here." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/zap2xml</Config>
+  <Config Name="Web port" Target="8080" Default="8080" Mode="tcp" Description="Built-in web server serving xmltv.xml (set ENABLE_HTTP=false to turn off)." Type="Port" Display="always" Required="false" Mask="false">8080</Config>
+  <Config Name="ZIP code" Target="ZIPCODE" Default="" Mode="" Description="Postal code of your provider, e.g. 98101. Needed unless you log in." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Lineup / headend id" Target="LINEUP_ID" Default="" Mode="" Description="Provider headend id from the grid page, e.g. WA46626. Needed unless you log in." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Username (optional)" Target="USERNAME" Default="" Mode="" Description="TV Listings account email. Leave blank to use lineup id + ZIP instead." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Password (optional)" Target="PASSWORD" Default="" Mode="" Description="TV Listings account password." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Output file" Target="OUTPUT_FILE" Default="/data/xmltv.xml" Mode="" Description="Full path of the XMLTV file to write. Must stay inside /data to persist." Type="Variable" Display="always" Required="false" Mask="false">/data/xmltv.xml</Config>
+  <Config Name="Affiliate id" Target="AFFILIATE_ID" Default="orbebb" Mode="" Description="Gracenote affiliate id from the grid URL (?aid=). Leave at orbebb unless you know better." Type="Variable" Display="advanced" Required="false" Mask="false">orbebb</Config>
+  <Config Name="Grab options" Target="OPT_ARGS" Default="-U -D -I -a" Mode="" Description="zap2xml.pl flags: -a all channels, -d N days, -I icons, -D program details (slower), -U UTF-8." Type="Variable" Display="always" Required="false" Mask="false">-U -D -I -a</Config>
+  <Config Name="Refresh seconds" Target="SLEEPTIME" Default="43200" Mode="" Description="Seconds between grabs. 43200 = 12 hours." Type="Variable" Display="always" Required="false" Mask="false">43200</Config>
+  <Config Name="Serve over HTTP" Target="ENABLE_HTTP" Default="true" Mode="" Description="true/false - run the built-in web server." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Timezone" Target="TZ" Default="America/New_York" Mode="" Description="Container timezone, e.g. America/Los_Angeles." Type="Variable" Display="advanced" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id owning the output files." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id owning the output files." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="UMASK" Target="UMASK" Default="022" Mode="" Description="File creation mask." Type="Variable" Display="advanced" Required="false" Mask="false">022</Config>
+</Container>

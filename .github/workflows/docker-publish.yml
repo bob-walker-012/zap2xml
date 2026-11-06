@@ -1,58 +1,111 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-# GitHub recommends pinning actions to a commit SHA.
-# To get a newer version, you will need to update the SHA.
-# You can also reference a tag or branch, but the action may change without warning.
-
-name: Publish Docker image
+name: Build and publish
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  push_to_registry:
-    name: Push Docker image to Docker Hub
+  smoke-test:
+    name: Smoke test (real grab)
     runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      contents: read
-      attestations: write
-      id-token: write
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Perl syntax check
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libcompress-zlib-perl libjson-perl libjson-xs-perl \
+            libwww-perl liblwp-protocol-https-perl libhttp-cookies-perl libhtml-parser-perl
+          perl -c zap2xml.pl
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Shell lint
+        run: |
+          sudo apt-get install -y -qq shellcheck
+          shellcheck entry.sh healthcheck.sh
+
+      - name: Build test image
+        run: docker build -t zap2xml:test .
+
+      - name: Run one grab against tvlistings.gracenote.com
+        run: |
+          mkdir -p "$PWD/data"
+          docker run --rm --name zap2xml-test \
+            -e LINEUP_ID=WA46626 -e ZIPCODE=98101 -e AFFILIATE_ID=orbebb \
+            -e RUN_ONCE=true -e ENABLE_HTTP=false \
+            -e "OPT_ARGS=-U -a -d 1" \
+            -v "$PWD/data:/data" zap2xml:test 2>&1 | tee run.log
+
+      - name: Verify XMLTV output
+        run: |
+          test -s data/xmltv.xml
+          head -c 400 data/xmltv.xml
+          grep -q "<tv " data/xmltv.xml
+          grep -q "<channel id=" data/xmltv.xml
+          grep -q "<programme " data/xmltv.xml
+          echo "channels: $(grep -c '<channel id=' data/xmltv.xml)"
+          echo "programmes: $(grep -c '<programme ' data/xmltv.xml)"
+
+  publish:
+    name: Build and push to GHCR
+    needs: smoke-test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        uses: docker/metadata-action@v5
         with:
-          images: spencerlandis/zap2xml
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build and push
         id: push
-        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            latest
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: index.docker.io/spencerlandis/zap2xml
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true

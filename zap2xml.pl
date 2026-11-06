@@ -49,7 +49,7 @@ $VERSION = "2018-12-01";
 print "zap2xml ($VERSION)\nCommand line: $0 " .  join(" ",@ARGV) . "\n";
 
 %options=();
-getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:l:Lm:Mn:N:o:Op:P:qRr:s:S:t:Tu:UwWxY:zZ:89",\%options);
+getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:l:Lm:Mn:N:o:Op:P:qQ:Rr:s:S:t:Tu:UwWxY:zZ:89",\%options);
 
 $homeDir = $ENV{HOME};
 $homeDir = $ENV{USERPROFILE} if !defined($homeDir);
@@ -69,6 +69,7 @@ $cacheDir = 'cache';
 $lang = 'en';
 $userEmail = '';
 $password = '';
+$affiliateId = 'orbebb';   # Gracenote/TMS affiliate id (from grid-affiliates.html?aid=...)
 $proxy;
 $postalcode; 
 $country;
@@ -123,6 +124,7 @@ if (open (CONF, $confFile))
     elsif (/^\s*lineuptype\s*=\s*(.+)/i)     { $lineuptype = &rtrim($1); }
     elsif (/^\s*lineuplocation\s*=\s*(.+)/i) { $lineuplocation = &rtrim($1); }
     elsif (/^\s*postalcode\s*=\s*(.+)/i)     { $postalcode = &rtrim($1); }
+    elsif (/^\s*affiliate(?:id)?\s*=\s*(.+)/i) { $affiliateId = &rtrim($1); }
     else
     {
       die "Oddline in config file \"$confFile\".\n\t$_";
@@ -144,6 +146,7 @@ $trailerDir = $options{t} if defined $options{t};
 $lang = $options{l} if defined $options{l};
 $outFile = $options{o} if defined $options{o};
 $password = $options{p} if defined $options{p};
+$affiliateId = $options{Q} if defined $options{Q};
 $userEmail = $options{u} if defined $options{u};
 $proxy = $options{P} if defined $options{P};
 $zlineupId = $options{Y} if defined $options{Y};
@@ -204,7 +207,7 @@ if (! -d $cacheDir) {
 my $s1 = time();
 if (defined($options{z})) {
 
-  &login() if !defined($options{a}); # get favorites
+  &login() if !defined($ua); # sets lineup/token; favorites only parsed when -a is absent
   &parseTVGIcons() if defined($iconDir);
   $gridHours = 3;
   $maxCount = $days * (24 / $gridHours);
@@ -247,7 +250,7 @@ if (defined($options{z})) {
 
 } else {
 
-  &login() if !defined($options{a}); # get favorites
+  &login() if !defined($ua); # sets lineup/token; favorites only parsed when -a is absent
   $gridHours = 3;
   $maxCount = $days * (24 / $gridHours);
   $offset = $start * 3600 * 24 * 1000;
@@ -263,10 +266,7 @@ if (defined($options{z})) {
     $fn = "$cacheDir/$ms\.js\.gz";
     if (! -e $fn || $curday > $ncdays || $curday <= $ncsdays || $curday == $ncmday) {
       my $zstart = substr($ms, 0, -3);
-      $params = "?time=$zstart&timespan=$gridHours&pref=$zapPref&";
-      $params .= &getZapGParams();
-      $params .= '&TMSID=&AffiliateID=gapzap&FromPage=TV%20Grid';
-      $params .= '&ActivityID=1&OVDID=&isOverride=true';
+      $params = &getGridQuery($zstart, $gridHours);
       $rs = &getURL($urlRoot . "api/grid$params",1);
       last if ($rs eq '');
       $rc = Encode::encode('utf8', $rs);
@@ -866,7 +866,7 @@ sub loginZAP {
 sub getZapGParams {
   my %hash = &getZapParams();
   $hash{country} = delete $hash{countryCode};
-  return join("&", map { "$_=$hash{$_}" } keys %hash);
+  return join("&", map { $_ . "=" . &urlenc($hash{$_}) } keys %hash);
 }
 
 sub getZapPParams {
@@ -877,27 +877,64 @@ sub getZapPParams {
 
 sub getZapParams {
   my %phash = ();
-  if (defined($zlineupId) || defined($zipcode)) {
-    $postalcode = $zipcode;
-    $country = "USA";
-    $country = "CAN" if ($zipcode =~ /[A-z]/);
+  $country = "USA" if !defined($country) || $country eq '';
+  $device = "X" if !defined($device) || $device eq '';
+  if (defined($zlineupId) && $zlineupId ne '') {
     if ($zlineupId =~ /:/) {
        ($lineupId, $device) = split(/:/, $zlineupId);
     } else {
        $lineupId = $zlineupId;
-       $device = "-";
     }
+    $postalcode = $zipcode if defined($zipcode) && $zipcode ne '';
+    $phash{postalCode} = $postalcode;
+  } elsif (defined($zipcode) && $zipcode ne '') {
+    $postalcode = $zipcode;
+    $country = "USA";
+    $country = "CAN" if ($zipcode =~ /[A-z]/);
     $phash{postalCode} = $postalcode;
   } else {
     $phash{token} = &getZToken();
   }
-  $phash{lineupId} = "$country-$lineupId-DEFAULT";
+  # The grid-affiliates endpoint wants the bare headend id, not the old
+  # "USA-<headend>-DEFAULT" lineup id, and it is keyed off ?aid=<affiliateId>.
+  $phash{lineupId} = '';
   $phash{postalCode} = $postalcode;
   $phash{countryCode} = $country;
+  $phash{country} = $country;
   $phash{headendId} = $lineupId;
   $phash{device} = $device;
-  $phash{aid} = 'gapzap';
+  $phash{aid} = $affiliateId;
   return %phash;
+}
+
+sub urlenc {
+  my $v = shift;
+  $v = '' if !defined($v);
+  $v =~ s/([^A-Za-z0-9_.~-])/sprintf("%%%02X", ord($1))/ge;
+  return $v;
+}
+
+# Builds the query string for api/grid, mirroring what
+# tvlistings.gracenote.com/grid-affiliates.html?aid=<affiliateId> itself sends.
+sub getGridQuery {
+  my ($zstart, $span) = @_;
+  my @p;
+  push @p, "lineupId=";
+  push @p, "timespan=$span";
+  push @p, "headendId=" . &urlenc($lineupId);
+  push @p, "country=" . &urlenc(defined($country) ? $country : 'USA');
+  push @p, "timezone=";
+  push @p, "device=" . &urlenc(defined($device) ? $device : 'X');
+  push @p, "postalCode=" . &urlenc($postalcode);
+  push @p, "isOverride=true";
+  push @p, "time=$zstart";
+  push @p, "pref=" . &urlenc($zapPref);
+  push @p, "userId=-";
+  push @p, "aid=" . &urlenc($affiliateId);
+  push @p, "languagecode=" . &urlenc(lc($lang)) . "-us" if $lang =~ /^en/i;
+  push @p, "languagecode=" . &urlenc(lc($lang)) if $lang !~ /^en/i;
+  push @p, "token=" . &urlenc($zapToken) if defined($zapToken) && $zapToken ne '';
+  return "?" . join("&", @p);
 }
 
 sub login {
@@ -1586,7 +1623,8 @@ zap2xml <zap2xml\@gmail.com> ($VERSION)
   -D = include details = 1 extra http request per program!
   -I = include icons (image URLs) - 1 extra http request per program!
   -J <xmltv> = include xmltv file in output
-  -Y <lineupId> (if not using username/password)
+  -Q <affiliateId> = Gracenote affiliate id (default = "$affiliateId")
+  -Y <headendId> (if not using username/password, e.g. WA46626)
   -Z <zipcode> (if not using username/password)
   -z = use tvguide.com instead of zap2it.com
   -a = output all channels (not just favorites) 

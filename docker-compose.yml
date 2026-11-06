@@ -1,12 +1,25 @@
-version: '3'
-
 services:
-  xmltv:
-    image: zap2xml:latest
-    restart: always
+  zap2xml:
+    image: ghcr.io/bob-walker-012/zap2xml:latest
+    container_name: zap2xml
+    restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8080:8080"          # http://<host>:8080/xmltv.xml
+    volumes:
+      - ./data:/data          # xmltv.xml + cache live here
     environment:
-        - USERNAME=myemail@email.com
-        - PASSWORD=**password**
-        - OPT_ARGS=-I -D
+      TZ: America/New_York
+      AFFILIATE_ID: orbebb
+      # --- option A: log in with a TV Listings account ---
+      # USERNAME: you@example.com
+      # PASSWORD: yourpassword
+      # --- option B: no account, go straight at a provider lineup ---
+      LINEUP_ID: WA46626      # headend id, e.g. WA46626
+      ZIPCODE: "98101"
+      OUTPUT_FILE: /data/xmltv.xml
+      OPT_ARGS: "-U -D -I -a"
+      SLEEPTIME: "43200"
+      ENABLE_HTTP: "true"
+      HTTP_PORT: "8080"
+      PUID: "99"
+      PGID: "100"
