@@ -93,6 +93,7 @@ Pick **one** authentication route — lineup (no account) or login:
 | Password | `PASSWORD` | **yes** (login route) | — | Masked field |
 | CFG / Output folder | `/data` path | yes (pre-filled) | `/mnt/user/appdata/zap2xml` | Leave as-is |
 | Web port | `8080` | pre-filled | `8080` | Host port for `http://unraid-ip:8080/xmltv.xml` |
+| HTTP port (container) | `HTTP_PORT` | pre-filled | `8080` | Must match the container side of the port mapping |
 | Output file | `OUTPUT_FILE` | pre-filled | `/data/xmltv.xml` | Must stay under `/data` |
 | Grab options | `OPT_ARGS` | pre-filled | `-U -D -I -a` | Show it: advanced dropdown (`-d 3` = 3 days) |
 | Refresh seconds | `SLEEPTIME` | pre-filled | `43200` | 12 h |
