@@ -101,9 +101,9 @@ docker run --rm -e LINEUP_ID=WA46626 -e ZIPCODE=98101 -e RUN_ONCE=true \
   -v "$PWD/data:/data" zap2xml:local
 ```
 
-Pushing a tag (`git tag v1.0.0 && git push --tags`) publishes `ghcr.io/bob-walker-012/zap2xml:1.0.0`, `:1.0`, `:latest`.
-Make the GHCR package public once (GitHub → your profile → Packages → zap2xml → Package settings → Change visibility)
-or Unraid's pull will 401.
+Pushing a tag (`git tag v1.0.0 && git push --tags`) publishes `ghcr.io/bob-walker-012/zap2xml:1.0.0`, `:1.0` and `:latest`
+for `linux/amd64` + `linux/arm64`. The package is public, so Unraid can pull it anonymously. If you fork again and the
+package comes out private: GitHub → your profile → Packages → zap2xml → Package settings → Change visibility → Public.
 
 ## Notes
 
