@@ -76,10 +76,33 @@ Output: `/mnt/user/appdata/zap2xml/xmltv.xml`, or `http://<host>:8080/xmltv.xml`
      https://raw.githubusercontent.com/bob-walker-012/zap2xml/master/unraid/zap2xml.xml
    ```
 2. Unraid → **Docker** → **Add Container** → template dropdown → **zap2xml**.
-3. Fill in `ZIPCODE` + `LINEUP_ID` (or `USERNAME`/`PASSWORD`), hit **Apply**.
+3. Fill in the fields below, hit **Apply**.
 4. Guide file appears at `/mnt/user/appdata/zap2xml/xmltv.xml`.
 
 The template also works via **Docker → Add Container → Template: paste URL** with the raw GitHub URL above.
+
+#### The fields you actually fill in
+
+Pick **one** authentication route — lineup (no account) or login:
+
+| Template field | Env var | Required | Example | Notes |
+| --- | --- | --- | --- | --- |
+| ZIP code | `ZIPCODE` | **yes** (lineup route) | `98101` | Your provider's postal code |
+| Lineup / headend id | `LINEUP_ID` | **yes** (lineup route) | `WA46626` | From the grid page (see below) |
+| Username | `USERNAME` | **yes** (login route) | `you@example.com` | TV Listings account |
+| Password | `PASSWORD` | **yes** (login route) | — | Masked field |
+| CFG / Output folder | `/data` path | yes (pre-filled) | `/mnt/user/appdata/zap2xml` | Leave as-is |
+| Web port | `8080` | pre-filled | `8080` | Host port for `http://unraid-ip:8080/xmltv.xml` |
+| Output file | `OUTPUT_FILE` | pre-filled | `/data/xmltv.xml` | Must stay under `/data` |
+| Grab options | `OPT_ARGS` | pre-filled | `-U -D -I -a` | Show it: advanced dropdown (`-d 3` = 3 days) |
+| Refresh seconds | `SLEEPTIME` | pre-filled | `43200` | 12 h |
+| Timezone | `TZ` | pre-filled | `America/Los_Angeles` | Match your area or the guide is shifted |
+| Affiliate id | `AFFILIATE_ID` | pre-filled | `orbebb` | Under "show more settings" |
+| Serve over HTTP | `ENABLE_HTTP` | pre-filled | `true` | `false` if you only want the file |
+| PUID / PGID / UMASK | same | pre-filled | `99` / `100` / `022` | Unraid defaults already correct |
+
+Everything not listed as required works out of the box — the template ships the values in the last column.
+A logged-in account uses its saved provider, so `LINEUP_ID`/`ZIPCODE` can stay empty in that case.
 
 ### Option B — manual
 
