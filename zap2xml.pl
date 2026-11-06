@@ -251,6 +251,7 @@ if (defined($options{z})) {
 } else {
 
   &login() if !defined($ua); # sets lineup/token; favorites only parsed when -a is absent
+  &getZapParams(); # populate lineup/postal/device globals that getGridQuery reads
   $gridHours = 3;
   $maxCount = $days * (24 / $gridHours);
   $offset = $start * 3600 * 24 * 1000;
@@ -471,7 +472,7 @@ sub printHeader {
   if (defined($options{z})) {
     print $FH "<tv source-info-url=\"http://tvguide.com/\" source-info-name=\"tvguide.com\"";
   } else {
-    print $FH "<tv source-info-url=\"http://tvlistings.zap2it.com/\" source-info-name=\"zap2it.com\"";
+    print $FH "<tv source-info-url=\"https://tvlistings.gracenote.com/grid-affiliates.html\" source-info-name=\"zap2it.com\"";
   }
   print $FH " generator-info-name=\"zap2xml\" generator-info-url=\"zap2xml\@gmail.com\">\n";
 }
