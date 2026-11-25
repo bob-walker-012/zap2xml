@@ -19,7 +19,7 @@ env:
 
 jobs:
   smoke-test:
-    name: Smoke test (real grab)
+    name: Smoke test
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
