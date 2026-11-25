@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [master, main]
   workflow_dispatch:
+    inputs:
+      live_api:
+        description: "Hit the real Gracenote API (only works from IPs it has not blocked)"
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -35,13 +40,22 @@ jobs:
       - name: Build test image
         run: docker build -t zap2xml:test .
 
-      - name: Run one grab against tvlistings.gracenote.com
+      - name: Start fixture server (stand-in for tvlistings.gracenote.com)
+        run: |
+          python3 testdata/fixture_server.py 8000 > fixture.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8000/__count && break || sleep 0.5
+          done
+
+      - name: Run one grab against the fixture
         shell: bash
         run: |
           set -o pipefail
           mkdir -p "$PWD/data"
           docker run --rm --name zap2xml-test \
-            -e LINEUP_ID=HEADEND1 -e ZIPCODE=00000 -e AFFILIATE_ID=orbebb \
+            --add-host host.docker.internal:host-gateway \
+            -e ZAP2XML_BASE_URL=http://host.docker.internal:8000/ \
+            -e LINEUP_ID=FIXTURE0 -e ZIPCODE=00000 -e AFFILIATE_ID=orbebb \
             -e RUN_ONCE=true -e ENABLE_HTTP=false \
             -e "OPT_ARGS=-U -a -d 1" \
             -v "$PWD/data:/data" zap2xml:test 2>&1 | tee run.log
@@ -51,26 +65,35 @@ jobs:
           test -s data/xmltv.xml
           head -c 400 data/xmltv.xml
           grep -q "<tv " data/xmltv.xml
-          grep -q "<channel id=" data/xmltv.xml
-          grep -q "<programme " data/xmltv.xml
           CH=$(grep -c '<channel id=' data/xmltv.xml)
           P=$(grep -c '<programme ' data/xmltv.xml)
           echo "channels: $CH"
           echo "programmes: $P"
-          [ "$CH" -ge 20 ]
-          [ "$P" -ge 500 ]
+          [ "$CH" -ge 4 ]
+          [ "$P" -ge 20 ]
 
-      - name: Verify we stayed inside the request budget
+      - name: Verify the request budget
         run: |
-          REQS=$(grep -oE 'in [0-9]+ http request' run.log | grep -oE '[0-9]+' | tail -1)
-          echo "http requests this grab: ${REQS:-unknown}"
-          if [ -z "$REQS" ]; then echo "could not read request count"; exit 1; fi
-          if [ "$REQS" -gt 150 ]; then
-            echo "too many requests for a single grab ($REQS) - rate-limit regression"; exit 1
+          REQS=$(python3 -c "import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/__count'))['requests'])")
+          echo "grid requests issued: $REQS"
+          [ "$REQS" -le 12 ] || { echo "request budget blown ($REQS > 12)"; exit 1; }
+          if grep -qiE 'too many requests|rate limit|403 Forbidden' run.log; then
+            echo "run log shows throttling or blocking"; exit 1
           fi
-          if grep -qiE 'too many requests|rate limit' run.log; then
-            echo "run log mentions rate limiting"; exit 1
-          fi
+          grep -q "http requests" run.log
+
+      - name: Live API check (optional)
+        if: ${{ inputs.live_api }}
+        shell: bash
+        run: |
+          set -o pipefail
+          docker run --rm --name zap2xml-live \
+            -e LINEUP_ID=HEADEND1 -e ZIPCODE=00000 \
+            -e RUN_ONCE=true -e ENABLE_HTTP=false \
+            -e "OPT_ARGS=-U -a -d 1" \
+            -v "$PWD/data-live:/data" zap2xml:test 2>&1 | tee live.log
+          grep -q "<programme " data-live/xmltv.xml
+          echo "live programmes: $(grep -c '<programme ' data-live/xmltv.xml)"
 
   publish:
     name: Build and push to GHCR
