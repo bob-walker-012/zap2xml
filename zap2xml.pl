@@ -75,7 +75,7 @@ $postalcode;
 $country;
 $lineupId; 
 $device;
-$sleeptime = 0;
+$sleeptime = 1; # seconds between HTTP requests (override with -S); 0 floods Gracenote
 $allChan = 0;
 $shiftMinutes = 0;
 
@@ -822,8 +822,8 @@ sub loginTVG {
 sub loginZAP {
   my $rc = 0;
   while ($rc++ < $retries) {
-    my $r = &ua_post($urlRoot . 'api/user/login', 
-      { 
+    my $r = &ua_postSafe($urlRoot . 'api/user/login',
+      {
         emailid => $userEmail, password => $password,
         usertype => '0', facebookuser =>'false',
       }
@@ -938,6 +938,67 @@ sub getGridQuery {
   return "?" . join("&", @p);
 }
 
+my $rateBackoff = 0;
+my $rateHits = 0;
+
+# Gracenote answers throttling with HTTP 429 or a 403 whose body says "too many requests".
+sub isRateLimited {
+  my $r = shift;
+  return 0 if !defined($r);
+  return 1 if $r->code == 429;
+  my $b = $r->content;
+  $b = '' if !defined($b);
+  return 1 if $b =~ /too many requests|rate limit|request limit|abuse|temporarily blocked/i;
+  return 0;
+}
+
+sub politeWait {
+  my $r = shift;
+  $rateHits++;
+  $rateBackoff = $rateBackoff ? ($rateBackoff * 2) : 30;
+  $rateBackoff = 600 if $rateBackoff > 600;
+  my $ra = $r->header('Retry-After');
+  my $wait = (defined($ra) && $ra =~ /^\d+$/ && $ra > 0) ? $ra : $rateBackoff;
+  $wait = 600 if $wait > 600;
+  &perr("Rate limited (HTTP " . $r->code . "): backing off ${wait}s [$rateHits consecutive]\n");
+  sleep($wait);
+  if ($rateHits >= 6) {
+    die "Gracenote keeps refusing requests - aborting this run. The existing guide file was left untouched.\n";
+  }
+}
+
+sub rateOk {
+  $rateHits = 0;
+  $rateBackoff = 0;
+}
+
+sub ua_postSafe {
+  my @args = @_;
+  my $guard = 0;
+  while (1) {
+    my $r = &ua_post(@args);
+    return $r if !&isRateLimited($r);
+    &politeWait($r);
+    return $r if ++$guard >= 3;
+  }
+}
+
+my @userAgents = (
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0',
+  'Mozilla/5.0 (Linux; Android 14; SM-S918U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+);
+
+sub pickUserAgent {
+  my $env = $ENV{USER_AGENT};
+  return $env if defined($env) && $env ne '';
+  return $userAgents[int(rand(@userAgents))];
+}
+
 sub login {
   if (!defined($userEmail) || $userEmail eq '' || !defined($password) || $password eq '') {
     if (!defined($zlineupId)) {
@@ -950,7 +1011,9 @@ sub login {
     $ua->conn_cache(LWP::ConnCache->new( total_capacity => undef ));
     $ua->cookie_jar(HTTP::Cookies->new);
     $ua->proxy(['http', 'https'], $proxy) if defined($proxy);
-    $ua->agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.3296.83');
+    my $agent = &pickUserAgent();
+    &pout("User-Agent: $agent\n");
+    $ua->agent($agent);
     $ua->default_headers->push_header('Accept-Encoding' => 'gzip, deflate');
   }
 
@@ -999,9 +1062,15 @@ sub getURL {
     &pout("[$treq] Getting: $url\n");
     sleep $sleeptime; # do these rapid requests flood servers?
     my $r = &ua_get($url);
+    if (&isRateLimited($r)) {
+      &politeWait($r);
+      $rc--; # throttling is not a real attempt
+      next;
+    }
     my $cl = length($r->content);
     my $dc = $r->decoded_content( raise_error => 1 );
     if ($r->is_success && $cl) {
+      &rateOk();
       return $dc;
     } elsif ($r->code == 500 && $dc =~ /Could not load details/) {
       &pout("$dc\n");
@@ -1456,7 +1525,7 @@ sub postJSONO {
     my %phash = &getZapPParams();
     $phash{programSeriesID} = $sid;
     $phash{'clickstream[FromPage]'} = 'TV%20Grid';
-    my $r = &ua_post($url, \%phash, 'X-Requested-With' => 'XMLHttpRequest'); 
+    my $r = &ua_postSafe($url, \%phash, 'X-Requested-With' => 'XMLHttpRequest'); 
     if ($r->is_success) {
       $dc = Encode::encode('utf8', $r->decoded_content( raise_error => 1 ));
       &wbf($fn, Compress::Zlib::memGzip($dc));
@@ -1620,7 +1689,7 @@ zap2xml <zap2xml\@gmail.com> ($VERSION)
   -T = don't cache files containing programs with "$sTBA" titles 
   -P <http://proxyhost:port> = to use an http proxy
   -C <configuration file> (default = "$confFile")
-  -S <#seconds> = sleep between requests to prevent flooding of server 
+  -S <#seconds> = sleep between requests (default = $sleeptime; do not set 0)
   -D = include details = 1 extra http request per program!
   -I = include icons (image URLs) - 1 extra http request per program!
   -J <xmltv> = include xmltv file in output

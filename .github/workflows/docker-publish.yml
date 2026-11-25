@@ -36,7 +36,9 @@ jobs:
         run: docker build -t zap2xml:test .
 
       - name: Run one grab against tvlistings.gracenote.com
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p "$PWD/data"
           docker run --rm --name zap2xml-test \
             -e LINEUP_ID=HEADEND1 -e ZIPCODE=00000 -e AFFILIATE_ID=orbebb \
@@ -51,8 +53,24 @@ jobs:
           grep -q "<tv " data/xmltv.xml
           grep -q "<channel id=" data/xmltv.xml
           grep -q "<programme " data/xmltv.xml
-          echo "channels: $(grep -c '<channel id=' data/xmltv.xml)"
-          echo "programmes: $(grep -c '<programme ' data/xmltv.xml)"
+          CH=$(grep -c '<channel id=' data/xmltv.xml)
+          P=$(grep -c '<programme ' data/xmltv.xml)
+          echo "channels: $CH"
+          echo "programmes: $P"
+          [ "$CH" -ge 20 ]
+          [ "$P" -ge 500 ]
+
+      - name: Verify we stayed inside the request budget
+        run: |
+          REQS=$(grep -oE 'in [0-9]+ http request' run.log | grep -oE '[0-9]+' | tail -1)
+          echo "http requests this grab: ${REQS:-unknown}"
+          if [ -z "$REQS" ]; then echo "could not read request count"; exit 1; fi
+          if [ "$REQS" -gt 150 ]; then
+            echo "too many requests for a single grab ($REQS) - rate-limit regression"; exit 1
+          fi
+          if grep -qiE 'too many requests|rate limit' run.log; then
+            echo "run log mentions rate limiting"; exit 1
+          fi
 
   publish:
     name: Build and push to GHCR

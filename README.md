@@ -30,7 +30,8 @@ which Gracenote now answers with `400 No lineups are available for this ZIP`.
 | `ZIPCODE` | *empty* | Postal code for the lineup (e.g. `00000`) |
 | `AFFILIATE_ID` | `orbebb` | Gracenote affiliate id from `?aid=` |
 | `OUTPUT_FILE` | `/data/xmltv.xml` | Where the XMLTV file lands |
-| `OPT_ARGS` | `-U -D -I` | Extra `zap2xml.pl` flags (`-a` all channels, `-d 7` days, `-I` icons, `-D` details… ) |
+| `OPT_ARGS` | `-U -I -a` | Extra `zap2xml.pl` flags (`-d 7` days, `-I` icon URLs, `-a` all channels). **Avoid `-D`** — see below |
+| `REQUEST_DELAY` | `1` | Seconds between HTTP requests. `0` gets the container rate-limited |
 | `SLEEPTIME` | `43200` | Seconds between refreshes (12 h) |
 | `RUN_ONCE` | `false` | `true` = grab once and exit (handy for cron-driven setups) |
 | `ENABLE_HTTP` | `true` | Serve the output dir over HTTP on `HTTP_PORT` |
@@ -49,6 +50,30 @@ which Gracenote now answers with `400 No lineups are available for this ZIP`.
 3. That id (`HEADEND1`, `PC:…`, etc.) is `LINEUP_ID`; the postcode you entered is `ZIPCODE`.
 
 With a login you don't need either — the account's saved provider is used automatically.
+
+## Rate limits: why `-D` breaks the grab
+
+Gracenote throttles by IP + user agent. The grid API itself is cheap: one request per 3-hour window
+(8/day, so 56 for a 7-day grab). `-D` (program details) is not: it fires **one POST to
+`/api/program/overviewDetails` per program**, with `sleep $sleeptime` between them — and `$sleeptime`
+defaulted to **0**, so a 7-day grab on a 275-channel lineup launches a few thousand back-to-back
+requests. That is what produces `429 Too Many Requests` / "you have made too many requests", and once
+the IP is flagged the grid calls fail too, so the run dies and writes nothing.
+
+What changed here:
+
+| Before | Now |
+| --- | --- |
+| `OPT_ARGS` default `-U -D -I` (thousands of detail POSTs, no delay) | `-U -I -a` — grid only, ~56 requests per grab |
+| `sleep 0` between requests | `-S 1` (`REQUEST_DELAY`), one second per request |
+| One hard-coded Chrome user agent | Random pick from 7 real UA strings per run, override with `USER_AGENT` |
+| 429 treated as a normal failure, retried 3× with a 1 s gap | `Retry-After` honoured, exponential backoff 30 → 60 → … → 600 s, abort after 6 consecutive hits |
+| Empty result could replace a good file | Non-empty check before the atomic rename, so a throttled run leaves the previous guide intact |
+
+The details are genuinely optional: the grid response already carries title, short description, season,
+episode, rating, year, thumbnail and new/live flags. `-D` only adds cast/guest and genre data — and
+costs thousands of requests. If you want it anyway, set `OPT_ARGS` to include `-D` and raise
+`REQUEST_DELAY` to 2–3; a full grab then takes a couple of hours but stays under the limiter.
 
 ## Docker
 

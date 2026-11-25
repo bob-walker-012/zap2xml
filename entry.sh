@@ -15,8 +15,9 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $*"; }
 : "${ZIPCODE:=}"
 : "${AFFILIATE_ID:=orbebb}"
 : "${OUTPUT_FILE:=/data/xmltv.xml}"
-: "${OPT_ARGS:=-U -D -I}"
+: "${OPT_ARGS:=-U -I -a}"
 : "${SLEEPTIME:=43200}"
+: "${REQUEST_DELAY:=1}"
 : "${RUN_ONCE:=false}"
 : "${ENABLE_HTTP:=true}"
 : "${HTTP_PORT:=8080}"
@@ -56,7 +57,7 @@ run_grab() {
     log "ERROR: set USERNAME+PASSWORD, or LINEUP_ID+ZIPCODE"
     return 1
   fi
-  set -- "$@" -o "$_out.tmp" -c "$_cache" -Q "$AFFILIATE_ID"
+  set -- "$@" -o "$_out.tmp" -c "$_cache" -Q "$AFFILIATE_ID" -S "$REQUEST_DELAY"
   # shellcheck disable=SC2086
   $RUNAS zap2xml.pl "$@" $OPT_ARGS
   _rc=$?
@@ -70,6 +71,13 @@ run_grab() {
 }
 
 # ------------------------------------------------------------ refresh loop
+case " $OPT_ARGS " in
+  *" -D "*)
+    log "WARNING: -D is set. That is one extra request per program (thousands per grab)"
+    log "         and is the fastest way to get rate-limited. Leave it off unless you need cast/genres."
+    ;;
+esac
+
 while :; do
   START=$(date +%s)
   log "Starting EPG update (affiliate=$AFFILIATE_ID, lineup=${LINEUP_ID:-login})"
