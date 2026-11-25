@@ -78,8 +78,21 @@ case " $OPT_ARGS " in
     ;;
 esac
 
+write_status() {
+  # $1 = ok|error, $2 = seconds until next run. No credentials, no lineup id.
+  _ok=$1; _next=$2
+  _bytes=0
+  [ -f "$OUTPUT_FILE" ] && _bytes=$(wc -c < "$OUTPUT_FILE" | tr -d ' ')
+  _st="$OUTPUT_DIR/status.json.tmp"
+  cat > "$_st" <<EOF
+{"state":"$_ok","last_run":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')","last_run_epoch":$(date +%s),"output":"$OUTPUT_FILE","bytes":$_bytes,"next_run_in_seconds":$_next,"refresh_seconds":$SLEEPTIME,"grab_options":"$OPT_ARGS"}
+EOF
+  mv -f "$_st" "$OUTPUT_DIR/status.json"
+}
+
 while :; do
   START=$(date +%s)
+  write_status running 0
   log "Starting EPG update (affiliate=$AFFILIATE_ID, lineup=${LINEUP_ID:-login})"
 
   if [ -n "$USERNAME2" ] && [ -n "$PASSWORD2" ]; then
@@ -106,13 +119,25 @@ while :; do
     run_grab "$USERNAME" "$PASSWORD" "$OUTPUT_FILE" "$CACHE_DIR"
   fi
 
+  ELAPSED=$(( $(date +%s) - START ))
+  if [ -s "$OUTPUT_FILE" ]; then
+    _ch=$(grep -c '<channel id=' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    _pg=$(grep -c '<programme ' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    log "Guide ready: ${_ch} channels, ${_pg} programmes, $(du -h "$OUTPUT_FILE" | cut -f1) in ${ELAPSED}s"
+    STATE=ok
+  else
+    log "ERROR: no guide produced this run - previous file (if any) left untouched"
+    STATE=error
+  fi
+
+  NEXT=$(( SLEEPTIME - ELAPSED ))
+  [ "$NEXT" -lt 60 ] && NEXT=60
+  write_status "$STATE" "$NEXT"
+
   if [ "$RUN_ONCE" = "true" ]; then
     log "RUN_ONCE=true - exiting"
     exit 0
   fi
-  ELAPSED=$(( $(date +%s) - START ))
-  NEXT=$(( SLEEPTIME - ELAPSED ))
-  [ "$NEXT" -lt 60 ] && NEXT=60
   log "Next run in ${NEXT}s"
   sleep "$NEXT"
 done

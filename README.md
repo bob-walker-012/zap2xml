@@ -7,6 +7,9 @@ Forked from `spencerlandis/zap2xml` (which itself came from the old `shuaiscott`
 image `michaelbarany/zap2xml` has not been rebuilt in 8+ years and its grabber calls the legacy `gapzap` affiliate id,
 which Gracenote now answers with `400 No lineups are available for this ZIP`.
 
+Nothing personal is baked into the image or the repo: lineups, ZIP codes and passwords arrive as
+environment variables at run time, and the template ships them empty.
+
 ## What this fork changes
 
 | Change | Detail |
@@ -139,6 +142,38 @@ Network Bridge, port `8080 → 8080`, path `/mnt/user/appdata/zap2xml → /data`
 
 Use the file path directly (best), or add the URL as an XMLTV guide source:
 `http://<unraid-ip>:8080/xmltv.xml`.
+
+## Watching it work
+
+```bash
+docker logs -f zap2xml
+```
+A run looks like this — and yes, the gaps are the 1 s request pacing:
+
+```
+[2026-11-25 09:34:31 EST] Starting EPG update (affiliate=orbebb, lineup=FIXTURE0)
+[0] Getting: https://tvlistings.gracenote.com/api/grid?...&aid=orbebb
+[1/8] Parsing: /data/cache/1795626000000.js.gz
+...
+Downloaded 18437 bytes in 8 http requests using 8 sockets.
+[2026-11-25 09:34:39 EST] Guide ready: 4 channels, 28 programmes, 20.0K in 8s
+[2026-11-25 09:34:39 EST] Next run in 43192s
+```
+
+Every run also writes **`/data/status.json`**, served by the built-in web server:
+
+```bash
+curl -s http://<unraid-ip>:8080/status.json
+{"state":"ok","last_run":"2026-11-25T14:34:39Z","last_run_epoch":1795626879,
+ "output":"/data/xmltv.xml","bytes":20480,"next_run_in_seconds":43192,
+ "refresh_seconds":43200,"grab_options":"-U -I -a"}
+```
+
+`state` is `running`, `ok` or `error` (an error leaves your previous guide in place). It carries no
+credentials and no lineup id — only sizes and timings. The container healthcheck is the same idea for
+Unraid's UI: green while the guide is present, valid XMLTV and younger than two refresh cycles.
+
+Want to test without waiting for the loop? `-e RUN_ONCE=true` does one grab and exits.
 
 ## Building locally
 
