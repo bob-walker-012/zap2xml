@@ -37,6 +37,7 @@ use LWP::UserAgent;
 use LWP::ConnCache;
 use POSIX;
 use Time::Local;
+use Time::HiRes qw(sleep); # lets -S accept fractional seconds
 use Time::Piece;
 use JSON;
 
@@ -49,7 +50,7 @@ $VERSION = "2018-12-01";
 print "zap2xml ($VERSION)\nCommand line: $0 " .  join(" ",@ARGV) . "\n";
 
 %options=();
-getopts("?aA:bB:c:C:d:DeE:Fgi:IjJ:l:Lm:Mn:N:o:Op:P:qQ:Rr:s:S:t:Tu:UwWxY:zZ:89",\%options);
+getopts("?aA:bB:c:C:d:DeE:FgH:i:IjJ:l:Lm:Mn:N:o:Op:P:qQ:Rr:s:S:t:Tu:UwWxY:zZ:89",\%options);
 
 $homeDir = $ENV{HOME};
 $homeDir = $ENV{USERPROFILE} if !defined($homeDir);
@@ -76,6 +77,7 @@ $country;
 $lineupId; 
 $device;
 $sleeptime = 1; # seconds between HTTP requests (override with -S); 0 floods Gracenote
+$gridHoursOpt = 6; # hours per grid request (override with -H); 3 = old behaviour, 6 halves the request count
 $allChan = 0;
 $shiftMinutes = 0;
 
@@ -125,6 +127,7 @@ if (open (CONF, $confFile))
     elsif (/^\s*lineuplocation\s*=\s*(.+)/i) { $lineuplocation = &rtrim($1); }
     elsif (/^\s*postalcode\s*=\s*(.+)/i)     { $postalcode = &rtrim($1); }
     elsif (/^\s*affiliate(?:id)?\s*=\s*(.+)/i) { $affiliateId = &rtrim($1); }
+    elsif (/^\s*gridhours\s*=\s*(\d+)/i)    { $gridHoursOpt = $1; }
     else
     {
       die "Oddline in config file \"$confFile\".\n\t$_";
@@ -147,6 +150,7 @@ $lang = $options{l} if defined $options{l};
 $outFile = $options{o} if defined $options{o};
 $password = $options{p} if defined $options{p};
 $affiliateId = $options{Q} if defined $options{Q};
+$gridHoursOpt = $options{H} if defined $options{H};
 $userEmail = $options{u} if defined $options{u};
 $proxy = $options{P} if defined $options{P};
 $zlineupId = $options{Y} if defined $options{Y};
@@ -165,6 +169,11 @@ $tvgurlRoot = 'http://mobilelistings.tvguide.com/';
 $tvgMapiRoot = 'http://mapi.tvguide.com/';
 $tvgurl = 'https://www.tvguide.com/';
 $tvgspritesurl = 'http://static.tvgcdn.net/sprites/';
+$gridHoursOpt = $ENV{GRID_HOURS} if defined($ENV{GRID_HOURS}) && $ENV{GRID_HOURS} =~ /^\d+$/;
+$sleeptime = $ENV{REQUEST_DELAY} if defined($ENV{REQUEST_DELAY}) && $ENV{REQUEST_DELAY} =~ /^\d+(\.\d+)?$/;
+$gridHoursOpt = 12 if $gridHoursOpt > 12;
+$gridHoursOpt = 1 if $gridHoursOpt < 1;
+$gridHoursOpt = int($gridHoursOpt);
 $retries = 20 if $retries > 20; # Too many
 
 my %programs = ();
@@ -210,7 +219,7 @@ if (defined($options{z})) {
 
   &login() if !defined($ua); # sets lineup/token; favorites only parsed when -a is absent
   &parseTVGIcons() if defined($iconDir);
-  $gridHours = 3;
+  $gridHours = $gridHoursOpt;
   $maxCount = $days * (24 / $gridHours);
   $offset = $start * 3600 * 24 * 1000;
   $ms = &hourToMillis() + $offset;
@@ -253,7 +262,7 @@ if (defined($options{z})) {
 
   &login() if !defined($ua); # sets lineup/token; favorites only parsed when -a is absent
   &getZapParams(); # populate lineup/postal/device globals that getGridQuery reads
-  $gridHours = 3;
+  $gridHours = $gridHoursOpt;
   $maxCount = $days * (24 / $gridHours);
   $offset = $start * 3600 * 24 * 1000;
   $ms = &hourToMillis() + $offset;
@@ -1695,6 +1704,7 @@ zap2xml <zap2xml\@gmail.com> ($VERSION)
   -I = include icons (image URLs) - 1 extra http request per program!
   -J <xmltv> = include xmltv file in output
   -Q <affiliateId> = Gracenote affiliate id (default = "$affiliateId")
+  -H <#hours> = hours per grid request (default = $gridHoursOpt; lower = more requests)
   -Y <headendId> (if not using username/password, e.g. HEADEND1)
   -Z <zipcode> (if not using username/password)
   -z = use tvguide.com instead of zap2it.com

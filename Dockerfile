@@ -9,6 +9,7 @@ ENV OUTPUT_FILE=/data/xmltv.xml \
     AFFILIATE_ID=orbebb \
     OPT_ARGS="-U -I -a" \
     REQUEST_DELAY=1 \
+    GRID_HOURS=6 \
     SLEEPTIME=43200 \
     ENABLE_HTTP=true \
     HTTP_PORT=8080 \

@@ -34,7 +34,8 @@ environment variables at run time, and the template ships them empty.
 | `AFFILIATE_ID` | `orbebb` | Gracenote affiliate id from `?aid=` |
 | `OUTPUT_FILE` | `/data/xmltv.xml` | Where the XMLTV file lands |
 | `OPT_ARGS` | `-U -I -a` | Extra `zap2xml.pl` flags (`-d 7` days, `-I` icon URLs, `-a` all channels). **Avoid `-D`** — see below |
-| `REQUEST_DELAY` | `1` | Seconds between HTTP requests. `0` gets the container rate-limited |
+| `REQUEST_DELAY` | `1` | Seconds between HTTP requests (fractions allowed). `0` gets the container rate-limited |
+| `GRID_HOURS` | `6` | Hours per grid request. `3` = the old, request-heavy behaviour |
 | `SLEEPTIME` | `43200` | Seconds between refreshes (12 h) |
 | `RUN_ONCE` | `false` | `true` = grab once and exit (handy for cron-driven setups) |
 | `ENABLE_HTTP` | `true` | Serve the output dir over HTTP on `HTTP_PORT` |
@@ -56,8 +57,8 @@ With a login you don't need either — the account's saved provider is used auto
 
 ## Rate limits: why `-D` breaks the grab
 
-Gracenote throttles by IP + user agent. The grid API itself is cheap: one request per 3-hour window
-(8/day, so 56 for a 7-day grab). `-D` (program details) is not: it fires **one POST to
+Gracenote throttles by IP + user agent. The grid API itself is cheap: one request per grid window —
+6 hours by default (`GRID_HOURS`), so 4/day, 56 for a 14-day grab. `-D` (program details) is not: it fires **one POST to
 `/api/program/overviewDetails` per program**, with `sleep $sleeptime` between them — and `$sleeptime`
 defaulted to **0**, so a 7-day grab on a 275-channel lineup launches a few thousand back-to-back
 requests. That is what produces `429 Too Many Requests` / "you have made too many requests", and once
@@ -67,7 +68,7 @@ What changed here:
 
 | Before | Now |
 | --- | --- |
-| `OPT_ARGS` default `-U -D -I` (thousands of detail POSTs, no delay) | `-U -I -a` — grid only, ~56 requests per grab |
+| `OPT_ARGS` default `-U -D -I` (thousands of detail POSTs, no delay) | `-U -I -a` — grid only |
 | `sleep 0` between requests | `-S 1` (`REQUEST_DELAY`), one second per request |
 | One hard-coded Chrome user agent | Random pick from 7 real UA strings per run, override with `USER_AGENT` |
 | 429 treated as a normal failure, retried 3× with a 1 s gap | `Retry-After` honoured, exponential backoff 30 → 60 → … → 600 s, abort after 6 consecutive hits |
@@ -153,9 +154,9 @@ A run looks like this — and yes, the gaps are the 1 s request pacing:
 ```
 [2026-11-25 09:34:31 EST] Starting EPG update (affiliate=orbebb, lineup=FIXTURE0)
 [0] Getting: https://tvlistings.gracenote.com/api/grid?...&aid=orbebb
-[1/8] Parsing: /data/cache/1795626000000.js.gz
+[1/4] Parsing: /data/cache/1795626000000.js.gz
 ...
-Downloaded 18437 bytes in 8 http requests using 8 sockets.
+Downloaded 18437 bytes in 4 http requests using 4 sockets.
 [2026-11-25 09:34:39 EST] Guide ready: 4 channels, 28 programmes, 20.0K in 8s
 [2026-11-25 09:34:39 EST] Next run in 43192s
 ```

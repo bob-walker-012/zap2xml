@@ -18,6 +18,7 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $*"; }
 : "${OPT_ARGS:=-U -I -a}"
 : "${SLEEPTIME:=43200}"
 : "${REQUEST_DELAY:=1}"
+: "${GRID_HOURS:=6}"
 : "${RUN_ONCE:=false}"
 : "${ENABLE_HTTP:=true}"
 : "${HTTP_PORT:=8080}"
@@ -57,7 +58,7 @@ run_grab() {
     log "ERROR: set USERNAME+PASSWORD, or LINEUP_ID+ZIPCODE"
     return 1
   fi
-  set -- "$@" -o "$_out.tmp" -c "$_cache" -Q "$AFFILIATE_ID" -S "$REQUEST_DELAY"
+  set -- "$@" -o "$_out.tmp" -c "$_cache" -Q "$AFFILIATE_ID" -S "$REQUEST_DELAY" -H "$GRID_HOURS"
   # shellcheck disable=SC2086
   $RUNAS zap2xml.pl "$@" $OPT_ARGS
   _rc=$?
